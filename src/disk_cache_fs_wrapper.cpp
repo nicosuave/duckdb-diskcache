@@ -1,5 +1,4 @@
-#include "disk_cache_fs_wrapper.hpp"
-#include "disk_cache.hpp"
+#include "include/disk_cache_fs_wrapper.hpp"
 
 namespace duckdb {
 

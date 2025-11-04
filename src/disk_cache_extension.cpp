@@ -1,7 +1,7 @@
 #define DUCKDB_EXTENSION_MAIN
 
-#include "disk_cache_extension.hpp"
-#include "disk_cache_fs_wrapper.hpp"
+#include "include/disk_cache_extension.hpp"
+#include "include/disk_cache_fs_wrapper.hpp"
 #include "duckdb/storage/object_cache.hpp"
 #include "duckdb/storage/external_file_cache.hpp"
 #include "duckdb/planner/expression/bound_function_expression.hpp"
@@ -141,7 +141,7 @@ static unique_ptr<FunctionData> DiskCacheStatsBind(ClientContext &context, Table
 	// Setup return schema - returns cache statistics with 7 columns
 	return_types.push_back(LogicalType::VARCHAR); // uri (with protocol)
 	return_types.push_back(LogicalType::VARCHAR); // file
-	return_types.push_back(LogicalType::BIGINT);  // range_start_uri
+	return_types.push_back(LogicalType::BIGINT);  // range_start
 	return_types.push_back(LogicalType::BIGINT);  // range_size
 	return_types.push_back(LogicalType::BIGINT);  // usage_count
 	return_types.push_back(LogicalType::BIGINT);  // bytes_from_cache
@@ -149,7 +149,7 @@ static unique_ptr<FunctionData> DiskCacheStatsBind(ClientContext &context, Table
 
 	names.push_back("uri");
 	names.push_back("file");
-	names.push_back("range_start_uri");
+	names.push_back("range_start");
 	names.push_back("range_size");
 	names.push_back("usage_count");
 	names.push_back("bytes_from_cache");
@@ -240,7 +240,7 @@ static void DiskCacheStatsFunction(ClientContext &context, TableFunctionInput &d
 		const auto &info = stats[offset + i];
 		output.data[0].SetValue(i, Value(info.uri));
 		output.data[1].SetValue(i, Value(info.file));
-		output.data[2].SetValue(i, Value::BIGINT(info.range_start_uri));
+		output.data[2].SetValue(i, Value::BIGINT(info.range_start));
 		output.data[3].SetValue(i, Value::BIGINT(info.range_size));
 		output.data[4].SetValue(i, Value::BIGINT(info.usage_count));
 		output.data[5].SetValue(i, Value::BIGINT(info.bytes_from_cache));

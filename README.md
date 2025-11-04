@@ -33,7 +33,7 @@ When shutting down DuckDB, you could save the list of contents of **DiskCache** 
 
 ```sql
 CREATE OR REPLACE TABLE hydrate AS
-SELECT uri range_start_uri, range_size
+SELECT uri, range_start, range_size
 FROM disk_cache_stats()
 ORDER BY ALL;
 ```
@@ -41,7 +41,7 @@ ORDER BY ALL;
 When you restart DuckDB later, potentially on another machine, you can quickly hydrate **DiskCache**:
 
 ```sql
-SELECT disk_cache_hydrate(uri, range_start_uri, range_size) FROM hydrate;
+SELECT disk_cache_hydrate(uri, range_start, range_size) FROM hydrate;
 ```
 
 The `disk_cache_hydrate()` function uses many I/O threads (see: `disk_cache_config`) for doing parallel I/O requests. Doing so is necessary in *cloud instances* to get near the network bandwidth, and allows for quick hydration of the smart cache from a previous state.

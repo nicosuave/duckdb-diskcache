@@ -41,13 +41,13 @@ struct WriteBuffer {
 // DiskCacheFileRange - represents a cached range with its own disk file
 //===----------------------------------------------------------------------===//
 struct DiskCacheFileRange {
-	idx_t uri_range_start, uri_range_end;                            // Range in remote blob file (uri)
+	idx_t range_start, range_end;                                    // Range in remote blob file (uri)
 	shared_ptr<WriteBuffer> write_buf;                               // write buffer shared with IO write queue
 	idx_t usage_count = 0, bytes_from_cache = 0, bytes_from_mem = 0; // stats
 	DiskCacheFileRange *lru_prev = nullptr, *lru_next = nullptr;     // LRU doubly-linked list
 
 	DiskCacheFileRange(idx_t start, idx_t end, shared_ptr<WriteBuffer> write_buffer)
-	    : uri_range_start(start), uri_range_end(end), write_buf(std::move(write_buffer)) {
+	    : range_start(start), range_end(end), write_buf(std::move(write_buffer)) {
 	}
 };
 
@@ -60,7 +60,7 @@ struct DiskCacheEntry {
 struct DiskCacheRangeInfo {
 	string uri;             // Full URI including protocol (e.g., s3://bucket/path)
 	string file;            // Disk file where this range is stored in the cache
-	idx_t range_start_uri;  // Start position in blob of this range
+	idx_t range_start;      // Start position in blob of this range
 	idx_t range_size;       // Size of range (end - start in remote file)
 	idx_t usage_count;      // how often it was read from the cache
 	idx_t bytes_from_cache; // disk bytes read from CacheFile
@@ -227,7 +227,7 @@ struct DiskCache {
 			DeleteCacheFile(range->write_buf->file_path); // Write completed, delete the file
 		}
 		RemoveFromLRU(range); // Remove from LRU
-		current_cache_size -= std::min<idx_t>(current_cache_size, range->uri_range_end - range->uri_range_start);
+		current_cache_size -= std::min<idx_t>(current_cache_size, range->range_end - range->range_start);
 		nr_ranges--;
 	}
 
