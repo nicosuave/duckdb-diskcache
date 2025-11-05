@@ -29,7 +29,7 @@ It lists the cache contents in reverse LRU order (hottest ranges first). One pos
 
 ```sql
 CREATE OR REPLACE TABLE hydrate AS
-SELECT uri range_start_uri, range_size
+SELECT uri, range_start, range_size
 FROM disk_cache_stats()
 ORDER BY ALL;
 ```
@@ -37,7 +37,7 @@ The above could be executed when shutting down DuckDB. When you restart DuckDB l
 
 
 ```sql
-SELECT disk_cache_hydrate(uri, range_start_uri, range_size) FROM hydrate;
+SELECT disk_cache_hydrate(uri, range_start, range_size) FROM hydrate;
 ```
 
 **DiskCache** provides a `disk_cache_hydrate(URL, start, size)` scalar function that uses *massively parallel I/O* to read and cache URI ranges. Please order the URL,start such that adjacent requests can be combined.

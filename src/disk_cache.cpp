@@ -1,4 +1,4 @@
-#include "disk_cache.hpp"
+#include "include/disk_cache.hpp"
 #include "duckdb/common/opener_file_system.hpp"
 #include "duckdb/main/config.hpp"
 
@@ -14,14 +14,14 @@ DiskCacheFileRange *AnalyzeRange(DiskCache &cache, const string &uri, idx_t pos,
 	if (it != disk_cache_entry->ranges.begin()) {
 		auto prev_it = std::prev(it);
 		auto &prev_range = prev_it->second;
-		if (prev_range && prev_range->uri_range_end > pos) {
+		if (prev_range && prev_range->range_end > pos) {
 			hit_range = prev_range.get();
 		}
 	}
 	// Check the next range to see if we need to reduce 'len' (to avoid reading data that we already cached)
 	if (it != disk_cache_entry->ranges.end() && it->second) {
-		if (it->second->uri_range_start < pos + len) {
-			len = it->second->uri_range_start - pos;
+		if (it->second->range_start < pos + len) {
+			len = it->second->range_start - pos;
 		}
 	}
 	return hit_range;
@@ -34,7 +34,7 @@ idx_t DiskCache::ReadFromCache(const string &uri, idx_t pos, idx_t &len, void *b
 	std::unique_lock<std::mutex> lock(disk_cache_mutex);
 	hit_range = AnalyzeRange(*this, uri, off, len); // may adjust len downward to match a next cached range
 	if (hit_range) {
-		hit_size = std::min(orig_len, hit_range->uri_range_end - pos);
+		hit_size = std::min(orig_len, hit_range->range_end - pos);
 	}
 	if (hit_size == 0) {
 		lock.unlock();
@@ -48,7 +48,7 @@ idx_t DiskCache::ReadFromCache(const string &uri, idx_t pos, idx_t &len, void *b
 
 	// Check if we can read from WriteBuffer (write in progress or completed)
 	shared_ptr<WriteBuffer> write_buf = hit_range->write_buf;
-	idx_t offset = pos - hit_range->uri_range_start;
+	idx_t offset = pos - hit_range->range_start;
 	if (write_buf) {
 		std::shared_ptr<char> buffer_data = write_buf->buf;
 		if (buffer_data) { // Write still in progress, read from memory buffer
@@ -63,7 +63,7 @@ idx_t DiskCache::ReadFromCache(const string &uri, idx_t pos, idx_t &len, void *b
 
 	// save the critical values before unlock (after unlock, hit_range* might get deallocated in a concurrent evict)
 	string file = hit_range->write_buf->file_path;
-	idx_t uri_range_start = hit_range->uri_range_start;
+	idx_t range_start = hit_range->range_start;
 	lock.unlock();
 
 	// Read from on-disk cache file unlocked
@@ -75,7 +75,7 @@ idx_t DiskCache::ReadFromCache(const string &uri, idx_t pos, idx_t &len, void *b
 		lock.lock();
 		auto disk_cache_entry = FindEntry(uri);
 		if (disk_cache_entry) {
-			auto range_it = disk_cache_entry->ranges.find(uri_range_start);
+			auto range_it = disk_cache_entry->ranges.find(range_start);
 			if (range_it != disk_cache_entry->ranges.end()) {
 				range_it->second->bytes_from_mem += bytes_from_mem;
 			}
@@ -97,8 +97,8 @@ void DiskCache::InsertCache(const string &uri, idx_t pos, idx_t len, void *buf) 
 	auto hit_range = AnalyzeRange(*this, uri, pos, len);
 	idx_t offset = 0, final_size = 0, range_start = pos, range_end = range_start + len;
 	if (hit_range) { // another thread cached the same range in the meantime
-		offset = hit_range->uri_range_end - range_start;
-		range_start = hit_range->uri_range_end; // cache only from the end
+		offset = hit_range->range_end - range_start;
+		range_start = hit_range->range_end; // cache only from the end
 	}
 	if (range_end > range_start) {
 		final_size = range_end - range_start;
@@ -357,8 +357,8 @@ bool DiskCache::EvictToCapacity(idx_t new_range_size) {
 	while (required_space > freed_space && current_range && ranges_checked++ < max_ranges) {
 		// Save next candidate before we evict current
 		auto *next_range = current_range->lru_prev;
-		idx_t range_size = current_range->uri_range_end - current_range->uri_range_start;
-		idx_t range_start = current_range->uri_range_start;
+		idx_t range_size = current_range->range_end - current_range->range_start;
+		idx_t range_start = current_range->range_start;
 
 		// Find and remove this range from its cache entry
 		bool removed = false;
@@ -402,8 +402,8 @@ vector<DiskCacheRangeInfo> DiskCache::GetStatistics() const { // produce list of
 		info.uri = cache_entry->uri; // Keep full URI with protocol intact
 		for (const auto &range_pair : cache_entry->ranges) {
 			info.file = range_pair.second->write_buf->file_path;
-			info.range_start_uri = range_pair.second->uri_range_start;
-			info.range_size = range_pair.second->uri_range_end - range_pair.second->uri_range_start;
+			info.range_start = range_pair.second->range_start;
+			info.range_size = range_pair.second->range_end - range_pair.second->range_start;
 			info.usage_count = range_pair.second->usage_count;
 			info.bytes_from_cache = range_pair.second->bytes_from_cache;
 			info.bytes_from_mem = range_pair.second->bytes_from_mem;
