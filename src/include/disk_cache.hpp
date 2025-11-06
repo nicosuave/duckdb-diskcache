@@ -33,7 +33,8 @@ struct WriteBuffer {
 	size_t nr_bytes;           // Size to write, or CANCELED if canceled
 	string file_path;          // Cache file path
 
-	WriteBuffer() : buf(nullptr), nr_bytes(0) { }
+	WriteBuffer() : buf(nullptr), nr_bytes(0) {
+	}
 };
 
 //===----------------------------------------------------------------------===//
@@ -46,7 +47,8 @@ struct DiskCacheFileRange {
 	DiskCacheFileRange *lru_prev = nullptr, *lru_next = nullptr;     // LRU doubly-linked list
 
 	DiskCacheFileRange(idx_t start, idx_t end, shared_ptr<WriteBuffer> write_buffer)
-	    : range_start(start), range_end(end), write_buf(std::move(write_buffer)) { }
+	    : range_start(start), range_end(end), write_buf(std::move(write_buffer)) {
+	}
 };
 
 struct DiskCacheEntry {
