@@ -47,7 +47,7 @@ struct DiskCacheGlobalState : public GlobalTableFunctionState {
 
 void default_cache_sizes(DatabaseInstance &db, idx_t &max_size_mb, idx_t &nr_io_threads) {
 	max_size_mb = db.NumberOfThreads() * 4096; // 4GB * threads
-	nr_io_threads = std::min<idx_t>(192, db.NumberOfThreads() * 12);
+	nr_io_threads = std::min<idx_t>(255, db.NumberOfThreads() * 12);
 }
 
 // Bind function for disk_cache_config
