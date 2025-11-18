@@ -657,12 +657,14 @@ void DiskCache::UpdateRegexPatterns(const string &regex_patterns_str) {
 }
 
 bool DiskCache::CacheUnsafely(const string &uri) const {
-	std::lock_guard<std::mutex> lock(regex_mutex);
-	if (!cached_regexps.empty()) { // empty is default!
-		// the regexps allow unsafe caching (without worrying about etags/modified times): blindly cache
-		for (const auto &compiled_pattern : cached_regexps) {
-			if (std::regex_search(uri, compiled_pattern)) {
-				return true;
+	if (!StringUtil::StartsWith(uri, disk_cache_dir)) { // never cache own files
+		std::lock_guard<std::mutex> lock(regex_mutex);
+		if (!cached_regexps.empty()) { // empty is default!
+			// the regexps allow unsafe caching (without worrying about etags/modified times): blindly cache
+			for (const auto &compiled_pattern : cached_regexps) {
+				if (std::regex_search(uri, compiled_pattern)) {
+					return true;
+				}
 			}
 		}
 	}

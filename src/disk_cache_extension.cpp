@@ -202,7 +202,7 @@ static void DiskCacheConfigFunction(ClientContext &context, TableFunctionInput &
 			shared_cache->UpdateRegexPatterns(bind_data.regex_patterns);
 			success = true;
 			// Now that cache is configured, wrap any existing filesystems
-			WrapExistingFilesystems(*context.db);
+			WrapExistingFilesystems(*context.db, bind_data.regex_patterns != "");
 		}
 	}
 	// Get current cache statistics (works whether configuration succeeded or not)
