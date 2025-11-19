@@ -30,7 +30,7 @@ constexpr idx_t CANCELED = static_cast<idx_t>(-1);
 // WriteBuffer - shared buffer for async writes
 struct WriteBuffer {
 	std::shared_ptr<char> buf; // Shared pointer to data buffer. Gets set nullptr once write to file_path completes
-	size_t nr_bytes;           // Size to write, or WRITE_CANCELED if canceled
+	size_t nr_bytes;           // Size to write, or CANCELED if canceled
 	string file_path;          // Cache file path
 
 	WriteBuffer() : buf(nullptr), nr_bytes(0) {

@@ -1,6 +1,6 @@
 **DiskCache** is a small and *non-invasive* DuckDB extension that adds disk (SSD) caching to its ExternalFileCache. That ExternalFileCache (CachingFileSystem) is specifically geared towards accessing Parquet files in Data Lakes (ducklake, iceberg, delta) where it knows that their Parquet files will never be changed and thus can safely be cached. DuckDB's ExternalFileCache caches data in RAM via the *Buffer Manager* that is also used for database data. This **DiskCache** extension significantly enlarges the data volumes that can be quickly cached by also storing data on *local disk*.
 
-It works by intercepting reads and writes that go through httpfs (including http://, https://, s3://, hf://, r2://, and gcp:// access) as well as Azure and will write what you just accessed to a local cache file as well. Subsequent reads will be served from that. This also holds for data that you just wrote: it will also be cached in **DiskCache**.  By default, it will only cache files read via a *Data Lake reader*. 
+It works by intercepting reads and writes that go through httpfs (including http://, https://, s3://, hf://, r2://, and gcp:// access) as well as Azure and will write what you just accessed to a local cache file as well. Subsequent reads will be served from that. This also holds for data that you just wrote: it will also be cached in **DiskCache**.  By default, it will only cache files accessed by a *Data Lake*. 
 
 **DiskCache** will use by default a maximum size of 4GB * cores and as number of IO threads 12 * cores (with max 255).
 It works fine by default in conjunction with the ExternalFileCache which is on by default in DuckDB. **DiskCache** intercepts network reads and writes, but these will only occur if the ExternalFileCache misses. Therefore, very hot ranges that are firmly cached in RAM by ExternalDiskCache will never need a network read and therefore appear to be cold data to the **DiskCache**. We therefore also implemented RAM caching inside the **DiskCache** which gets used only if the ExternalFileCache is disabled by:
@@ -25,11 +25,7 @@ The current contents of the cache can be queried with:
 FROM disk_cache_stats();
 ```
 
-It lists the cache contents in reverse LRU order (hottest ranges first). One possible usage of this table function could be to store the (leading) part of these ranges in a DuckDB table.
-
-**DiskCache** provides a `disk_cache_hydrate(URL, start, size)` scalar function that uses *massively parallel I/O* to read and cache these ranges. Please order the URL,start such that adjacent requests can be combined.
-
-When shutting down DuckDB, you could save the list of contents of **DiskCache** as follows:
+It lists the cache contents in reverse LRU order (hottest ranges first). One possible usage of this table function could be to store the (leading) part of these ranges in a DuckDB table:
 
 ```sql
 CREATE OR REPLACE TABLE hydrate AS
@@ -37,14 +33,15 @@ SELECT uri, range_start, range_size
 FROM disk_cache_stats()
 ORDER BY ALL;
 ```
+The above could be executed when shutting down DuckDB. When you restart DuckDB later, potentially on another machine, you can quickly hydrate **DiskCache**:
 
-When you restart DuckDB later, potentially on another machine, you can quickly hydrate **DiskCache**:
 
 ```sql
 SELECT disk_cache_hydrate(uri, range_start, range_size) FROM hydrate;
 ```
 
-The `disk_cache_hydrate()` function uses many I/O threads (see: `disk_cache_config`) for doing parallel I/O requests. Doing so is necessary in *cloud instances* to get near the network bandwidth, and allows for quick hydration of the smart cache from a previous state.
+**DiskCache** provides a `disk_cache_hydrate(URL, start, size)` scalar function that uses *massively parallel I/O* to read and cache URI ranges. Please order the URL,start such that adjacent requests can be combined.
+The `disk_cache_hydrate()` function uses many I/O threads (see: `disk_cache_config`) for doing parallel I/O requests. Doing so is necessary in *cloud instances* to get near the maximum network bandwidth, and allows for quick hydration of the smart cache from a previous state.
 
 **DiskCache** supports a "fake-S3" `fake_s3://X` filesystem  which acts like S3 but directs to the local filesystem, while adding *fake network latencies* similar to S3 latencies (best-case "inside the same AZ"). This is a handy tool for local performance debugging without having to spin up an EC2 instance. One could e.g. create a SF100 tpch database and generate parquet files e.g., using:
 ```sql
