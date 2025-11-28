@@ -92,7 +92,7 @@ struct Diskcache {
 	// Configuration and state
 	shared_ptr<DatabaseInstance> db_instance;
 	bool diskcache_initialized = false, diskcache_shutting_down = false;
-	string path_sep;       // normally "/", but "\" on windows
+	string path_sep;      // normally "/", but "\" on windows
 	string diskcache_dir; // where we store data temporarily
 	idx_t total_cache_capacity = 0;
 
@@ -104,7 +104,7 @@ struct Diskcache {
 	std::bitset<4096 + 4096 * 256> subdir_created; // 4096 XXX/ directories plus 4096*256 XXX/YY directories
 
 	// Cache maps and LRU
-	mutable std::mutex diskcache_mutex;                                     // Protects cache, LRU lists, sizes
+	mutable std::mutex diskcache_mutex;                                      // Protects cache, LRU lists, sizes
 	unique_ptr<unordered_map<string, unique_ptr<DiskcacheEntry>>> key_cache; // 1 entry per file (+rangelist per entry)
 	DiskcacheFileRange *lru_head = nullptr, *lru_tail = nullptr;             // LRU on the ranges (not on the files)
 	idx_t current_cache_size = 0, nr_ranges = 0, current_file_id = 10000000;
@@ -269,7 +269,8 @@ struct Diskcache {
 	bool EvictToCapacity(idx_t required_space);
 	unique_ptr<FileHandle> TryOpenCacheFile(const string &file_path);
 	bool WriteToCacheFile(const string &file_path, const void *buf, idx_t len);
-	idx_t ReadFromCacheFile(const string &file_path, void *buf, idx_t len, idx_t offset); // Returns bytes_from_mem
+	idx_t ReadFromCacheFile(const string &file_path, void *buf, idx_t &len,
+	                        idx_t offset); // Returns bytes_from_mem, may reduce len
 	bool DeleteCacheFile(const string &file_path);
 	vector<DiskcacheRangeInfo> GetStatistics() const;
 

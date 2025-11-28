@@ -1,4 +1,4 @@
-# name: test/sql/duck_lake.test
+# name: test/sql/ducklake.test
 # description: test diskcache extension
 # group: [sql]
 

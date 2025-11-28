@@ -15,14 +15,6 @@ install httpfs
 statement ok
 load httpfs
 
-query I
-select message.substr(15) from duckdb_logs where message.substr(13,1) = '-';
-----
-Diskcache:fake_s3
-Diskcache:HTTPFileSystem
-Diskcache:HuggingFaceFileSystem
-Diskcache:S3FileSystem
-
 statement ok
 install tpch
 

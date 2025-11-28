@@ -61,6 +61,7 @@ idx_t Diskcache::ReadFromCache(const string &uri, idx_t pos, idx_t &len, void *b
 	lock.unlock();
 
 	// Read from on-disk cache file unlocked
+	// Note: hit_size may be reduced by ReadFromCacheFile if memcache has partial data
 	idx_t bytes_from_mem = ReadFromCacheFile(file, buf, hit_size, offset);
 	if (bytes_from_mem == CANCELED) {
 		return 0; // Read failed -- but the wrapped FileSystem will read it again
@@ -76,7 +77,7 @@ idx_t Diskcache::ReadFromCache(const string &uri, idx_t pos, idx_t &len, void *b
 		}
 		lock.unlock();
 	}
-	return hit_size;
+	return hit_size; // hit_size may have been reduced by ReadFromCacheFile
 }
 
 // we had to read from the original source (e.g. S3). Now try to cache this buffer in the disk-based diskcache
@@ -425,7 +426,7 @@ unique_ptr<FileHandle> Diskcache::TryOpenCacheFile(const string &file) {
 	}
 }
 
-idx_t Diskcache::ReadFromCacheFile(const string &file, void *buffer, idx_t length, idx_t offset) {
+idx_t Diskcache::ReadFromCacheFile(const string &file, void *buffer, idx_t &length, idx_t offset) {
 	// Check if we should use our memcache (only if DuckDB's external cache is disabled)
 	auto &config = DBConfig::GetConfig(*db_instance);
 	bool use_memcache = !config.options.enable_external_file_cache;
