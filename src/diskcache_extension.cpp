@@ -426,8 +426,8 @@ void DiskcacheExtension::Load(ExtensionLoader &loader) {
 
 	// Register diskcache_hydrate scalar function
 	ScalarFunction diskcache_hydrate_function("diskcache_hydrate",
-	                                           {LogicalType::VARCHAR, LogicalType::BIGINT, LogicalType::BIGINT},
-	                                           LogicalType::BOOLEAN, DiskcacheHydrateFunction);
+	                                          {LogicalType::VARCHAR, LogicalType::BIGINT, LogicalType::BIGINT},
+	                                          LogicalType::BOOLEAN, DiskcacheHydrateFunction);
 	diskcache_hydrate_function.bind = DiskcacheHydrateBind;
 	loader.RegisterFunction(diskcache_hydrate_function);
 	diskcache_hydrate_function.name = "diskcache_hydrate_md_remote";

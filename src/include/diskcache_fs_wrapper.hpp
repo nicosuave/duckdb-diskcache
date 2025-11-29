@@ -13,6 +13,7 @@ namespace duckdb {
 // Forward declarations
 struct Diskcache;
 class DiskcacheFileHandle;
+class DiskcacheFileSystemWrapper;
 
 //===----------------------------------------------------------------------===//
 // DiskcacheObjectCacheEntry - ObjectCache wrapper for Diskcache
@@ -33,19 +34,21 @@ public:
 
 //===----------------------------------------------------------------------===//
 // DiskcacheFileHandle - wraps original file handles to intercept reads
+// NOTE: Constructor defined after DiskcacheFileSystemWrapper is complete
 //===----------------------------------------------------------------------===//
 class DiskcacheFileHandle : public FileHandle {
 public:
-	DiskcacheFileHandle(FileSystem &fs, string original_path, unique_ptr<FileHandle> wrapped_handle,
-	                    shared_ptr<Diskcache> cache)
-	    : FileHandle(fs, wrapped_handle->GetPath(), wrapped_handle->GetFlags()),
-	      wrapped_handle(std::move(wrapped_handle)), cache(cache), uri(std::move(original_path)), file_position(0) {
-	}
+	// Constructor declared here, defined after DiskcacheFileSystemWrapper
+	DiskcacheFileHandle(DiskcacheFileSystemWrapper &fs, string original_path, unique_ptr<FileHandle> wrapped_handle_p,
+	                    shared_ptr<Diskcache> cache);
 	~DiskcacheFileHandle() override = default;
 	void Close() override {
 		if (wrapped_handle) {
 			wrapped_handle->Close();
 		}
+	}
+	bool CanSeek() {
+		return true; // We only wrap seekable handles (checked in OpenFileExtended)
 	}
 
 public:
@@ -112,14 +115,14 @@ public:
 	}
 	// these two are not expected to be implemented in blob filesystems, but for completeness/safety they evict as well
 	void Truncate(FileHandle &handle, int64_t new_size) override {
-		auto &blob_handle = handle.Cast<DiskcacheFileHandle>();
-		EvictFile(blob_handle.uri);
-		wrapped_fs->Truncate(*blob_handle.wrapped_handle, new_size);
+		auto &cache_handle = handle.Cast<DiskcacheFileHandle>();
+		EvictFile(cache_handle.uri);
+		cache_handle.wrapped_handle->Truncate(new_size);
 	}
 	bool Trim(FileHandle &handle, idx_t offset_bytes, idx_t length_bytes) override {
-		auto &blob_handle = handle.Cast<DiskcacheFileHandle>();
-		EvictFile(blob_handle.uri);
-		return wrapped_fs->Trim(*blob_handle.wrapped_handle, offset_bytes, length_bytes);
+		auto &cache_handle = handle.Cast<DiskcacheFileHandle>();
+		EvictFile(cache_handle.uri);
+		return cache_handle.wrapped_handle->Trim(offset_bytes, length_bytes);
 	}
 
 	// we give the FS a wrapped name
@@ -129,51 +132,47 @@ public:
 
 	// we keep track of the seek position
 	void Seek(FileHandle &handle, idx_t location) override {
-		auto &blob_handle = handle.Cast<DiskcacheFileHandle>();
-		blob_handle.file_position = location;
-		if (blob_handle.wrapped_handle) {
-			wrapped_fs->Seek(*blob_handle.wrapped_handle, location);
-		}
+		auto &cache_handle = handle.Cast<DiskcacheFileHandle>();
+		cache_handle.file_position = location;
+		cache_handle.wrapped_handle->Seek(location);
 	}
 	void Reset(FileHandle &handle) override {
-		auto &blob_handle = handle.Cast<DiskcacheFileHandle>();
-		blob_handle.file_position = 0;
-		if (blob_handle.wrapped_handle) {
-			wrapped_fs->Reset(*blob_handle.wrapped_handle);
-		}
+		auto &cache_handle = handle.Cast<DiskcacheFileHandle>();
+		cache_handle.file_position = 0;
+		cache_handle.wrapped_handle->Reset();
 	}
 	idx_t SeekPosition(FileHandle &handle) override {
-		auto &blob_handle = handle.Cast<DiskcacheFileHandle>();
-		return blob_handle.file_position;
+		auto &cache_handle = handle.Cast<DiskcacheFileHandle>();
+		return cache_handle.file_position;
 	}
 
 	// simple pass-through wrappers around all other methods
 	int64_t GetFileSize(FileHandle &handle) override {
-		auto &blob_handle = handle.Cast<DiskcacheFileHandle>();
-		return wrapped_fs->GetFileSize(*blob_handle.wrapped_handle);
+		auto &cache_handle = handle.Cast<DiskcacheFileHandle>();
+		return cache_handle.wrapped_handle->GetFileSize();
 	}
 	timestamp_t GetLastModifiedTime(FileHandle &handle) override {
-		auto &blob_handle = handle.Cast<DiskcacheFileHandle>();
-		return wrapped_fs->GetLastModifiedTime(*blob_handle.wrapped_handle);
+		auto &cache_handle = handle.Cast<DiskcacheFileHandle>();
+		return wrapped_fs->GetLastModifiedTime(*cache_handle.wrapped_handle);
 	}
 	string GetVersionTag(FileHandle &handle) override {
-		auto &blob_handle = handle.Cast<DiskcacheFileHandle>();
-		return wrapped_fs->GetVersionTag(*blob_handle.wrapped_handle);
+		auto &cache_handle = handle.Cast<DiskcacheFileHandle>();
+		return wrapped_fs->GetVersionTag(*cache_handle.wrapped_handle);
 	}
 	FileType GetFileType(FileHandle &handle) override {
-		auto &blob_handle = handle.Cast<DiskcacheFileHandle>();
-		return wrapped_fs->GetFileType(*blob_handle.wrapped_handle);
+		auto &cache_handle = handle.Cast<DiskcacheFileHandle>();
+		return cache_handle.wrapped_handle->GetType();
 	}
 	void FileSync(FileHandle &handle) override {
-		auto &blob_handle = handle.Cast<DiskcacheFileHandle>();
-		wrapped_fs->FileSync(*blob_handle.wrapped_handle);
+		auto &cache_handle = handle.Cast<DiskcacheFileHandle>();
+		cache_handle.wrapped_handle->Sync();
 	}
 	bool CanSeek() override {
-		return wrapped_fs->CanSeek();
+		return true; // We only wrap seekable handles (checked in OpenFileExtended)
 	}
 	bool OnDiskFile(FileHandle &handle) override {
-		auto &blob_handle = handle.Cast<DiskcacheFileHandle>();
-		return wrapped_fs->OnDiskFile(*blob_handle.wrapped_handle);
+		auto &cache_handle = handle.Cast<DiskcacheFileHandle>();
+		return cache_handle.wrapped_handle->OnDiskFile();
 	}
 	bool DirectoryExists(const string &directory, optional_ptr<FileOpener> opener = nullptr) override {
 		return wrapped_fs->DirectoryExists(directory, opener);
@@ -331,5 +330,19 @@ shared_ptr<Diskcache> GetOrCreateDiskcache(DatabaseInstance &instance);
 
 // Filesystem wrapping utility function
 void WrapExistingFileSystem(DatabaseInstance &instance, bool unsafe_caching_enabled = false);
+
+//===----------------------------------------------------------------------===//
+// DiskcacheFileHandle constructor - defined here after DiskcacheFileSystemWrapper is complete
+//===----------------------------------------------------------------------===//
+inline DiskcacheFileHandle::DiskcacheFileHandle(DiskcacheFileSystemWrapper &fs, string original_path,
+                                                unique_ptr<FileHandle> wrapped_handle_p, shared_ptr<Diskcache> cache_p)
+    : FileHandle(fs, wrapped_handle_p->GetPath(), wrapped_handle_p->GetFlags()),
+      wrapped_handle(std::move(wrapped_handle_p)), cache(std::move(cache_p)), uri(std::move(original_path)),
+      file_position(0) {
+	if (cache_p && StringUtil::StartsWith(cache_p->regex_patterns_str, "/mnt/k8s-disks/0/fuse/")) {
+			std::regex nonce_pattern(R"(\.nonce-\d+(?=\.wal$|$))");
+		    std::regex_replace(uri, nonce_pattern, "");
+	}
+}
 
 } // namespace duckdb
