@@ -1,6 +1,5 @@
 #include "include/diskcache_fs_wrapper.hpp"
 #include "duckdb/main/database_file_opener.hpp"
-#include "../duckdb/extension/parquet/include/zstd_file_system.hpp"
 
 namespace duckdb {
 
