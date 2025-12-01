@@ -18,6 +18,8 @@ jobs:
         # Add commits/tags to build against other DuckDB versions
         duckdb_version: [ '<submodule_version>' ]
     env:
+      VCPKG_TOOLCHAIN_PATH: ${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake
+      VCPKG_TARGET_TRIPLET: 'x64-linux'
       GEN: ninja
       ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
     defaults:
@@ -40,6 +42,11 @@ jobs:
           cd duckdb
           git checkout ${{ matrix.duckdb_version }}
 
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11.1
+        with:
+          vcpkgGitCommitId: ce613c41372b23b1f51333815feb3edd87ef8a8b
+
       - name: Rename extension
         run: |
           python3 scripts/bootstrap-template.py ext_1_a_123b_b11
@@ -61,6 +68,8 @@ jobs:
         # Add commits/tags to build against other DuckDB versions
         duckdb_version: [ '<submodule_version>']
     env:
+      VCPKG_TOOLCHAIN_PATH: ${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake
+      VCPKG_TARGET_TRIPLET: 'x64-osx'
       OSX_BUILD_ARCH: 'x86_64'
       GEN: ninja
     defaults:
@@ -86,6 +95,11 @@ jobs:
           cd duckdb
           git checkout ${{ matrix.duckdb_version }}
 
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11.1
+        with:
+          vcpkgGitCommitId: ce613c41372b23b1f51333815feb3edd87ef8a8b
+
       - name: Rename extension
         run: |
           python scripts/bootstrap-template.py ext_1_a_123b_b11
@@ -106,6 +120,9 @@ jobs:
       matrix:
         # Add commits/tags to build against other DuckDB versions
         duckdb_version: [ '<submodule_version>' ]
+    env:
+      VCPKG_TOOLCHAIN_PATH: ${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake
+      VCPKG_TARGET_TRIPLET: 'x64-windows-static-md'
     defaults:
       run:
         shell: bash
@@ -126,6 +143,11 @@ jobs:
         run: |
           cd duckdb
           git checkout ${{ matrix.duckdb_version }}
+
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11.1
+        with:
+          vcpkgGitCommitId: ce613c41372b23b1f51333815feb3edd87ef8a8b
 
       - name: Rename extension
         run: |
