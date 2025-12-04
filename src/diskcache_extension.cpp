@@ -9,6 +9,7 @@
 #include "duckdb/parser/parsed_data/create_table_function_info.hpp"
 #include "duckdb/common/serializer/serializer.hpp"
 #include "duckdb/common/serializer/deserializer.hpp"
+#include "duckdb/logging/log_manager.hpp"
 
 namespace duckdb {
 
@@ -239,12 +240,22 @@ static void DiskcacheConfigFunction(ClientContext &context, TableFunctionInput &
 			    (StringUtil::EndsWith(bind_data.directory, shared_cache->path_sep) ? "" : shared_cache->path_sep);
 			shared_cache->ConfigureCache(bind_data.max_size_mb * 1024 * 1024, dir, bind_data.nr_io_threads);
 
+			// Enable debug logging if directory contains 'debug'
+			auto &log_manager = context.db->GetLogManager();
+			if (StringUtil::Contains(StringUtil::Lower(bind_data.directory), "debug")) {
+				log_manager.SetEnableLogging(true);
+				log_manager.SetLogLevel(LogLevel::LOG_DEBUG);
+				log_manager.SetLogStorage(*context.db, "memory");
+			} else {
+				log_manager.SetEnableLogging(false);
+			}
+
 			// Update regex patterns and purge non-qualifying cache entries
 			shared_cache->UpdateRegexPatterns(bind_data.regex_patterns);
 			success = true;
-			// Now that cache is configured, wrap the filesystem
-			WrapExistingFileSystem(*context.db, !bind_data.regex_patterns.empty());
 		}
+		// Now that cache is configured, wrap the filesystem
+		WrapExistingFileSystem(*context.db, !bind_data.regex_patterns.empty());
 	}
 	// Get current cache statistics (works whether configuration succeeded or not)
 	if (shared_cache && shared_cache->diskcache_initialized) {
