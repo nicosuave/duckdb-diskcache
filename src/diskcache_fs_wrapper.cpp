@@ -22,6 +22,7 @@ unique_ptr<FileHandle> DiskcacheFileSystemWrapper::OpenFileExtended(const OpenFi
 			cache_file |= !validate_entry->second.GetValue<bool>(); // do not validate => free pass for caching
 		}
 	}
+
 	// Don't wrap if we won't cache AND the handle can't seek (e.g., compressed files)
 	// Returning the original handle preserves correct CanSeek() behavior for non-seekable streams
 	if (!cache_file && !wrapped_handle->CanSeek()) {

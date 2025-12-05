@@ -202,17 +202,14 @@ static unique_ptr<FunctionData> DiskcacheStatsBind(ClientContext &context, Table
 
 // Helper to enforce enable_external_file_cache = false in md_mode
 static void EnforceMdModeSettings(ClientContext &context, Diskcache &cache) {
-	if (!cache.md_mode) {
-		return;
-	}
 	auto &config = DBConfig::GetConfig(*context.db);
 	bool prev_value = config.options.enable_external_file_cache;
-	if (prev_value) {
+	if (cache.md_mode) { 
 		config.options.enable_external_file_cache = false;
-		DUCKDB_LOG_DEBUG(*context.db,
-		                 "[Diskcache] md_mode: set enable_external_file_cache=false (was %s)",
-		                 prev_value ? "true" : "false");
 	}
+	string msg = string("[Diskcache] md_mode=") + (cache.md_mode ? "true" : "false") +
+	             " set enable_external_file_cache=false (was " +  (prev_value ? "true)" : "false)");
+	DUCKDB_LOG_DEBUG(*context.db, msg);
 }
 
 // diskcache_config(directory, max_size_mb, nr_io_threads) - Configure the blob cache
