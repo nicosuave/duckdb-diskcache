@@ -602,7 +602,7 @@ void Diskcache::ConfigureCache(idx_t max_size_bytes, const string &base_dir, idx
 	bool size_reduced = (max_size_bytes < total_cache_capacity);
 	bool size_changed = (total_cache_capacity != max_size_bytes);
 	if (!directory_changed && !need_restart_threads && !size_changed) {
-		LogDebug("ConfigureCache: stateuration unchanged, no action needed");
+		LogDebug("ConfigureCache: state unchanged, no action needed");
 		return;
 	}
 
