@@ -320,24 +320,63 @@ void Diskcache::MainIOThreadLoop(idx_t thread_id) {
 }
 
 //===----------------------------------------------------------------------===//
-// Diskcache - evict a complete file (i.e. it entry and all its ranges)
+// Diskcache - evict all ranges overlapping with [from, to] for a given uri
 //===----------------------------------------------------------------------===//
-void Diskcache::EvictEntry(const string &uri) {
+void Diskcache::EvictRegion(const string &uri, idx_t from, idx_t to) {
 	if (!diskcache_initialized) {
 		return;
 	}
+	LogDebug("EvictRegion(uri=" + uri + ", from=" + to_string(from) + ", to=" + to_string(to) + ")");
+
 	std::lock_guard<std::mutex> lock(diskcache_mutex);
 	auto map_key = StringUtil::Lower(uri);
 	auto it = key_cache->find(map_key);
 	if (it == key_cache->end()) {
-		return; // Not found
+		return; // No cached entry for this uri
 	}
-	// Iterate through all ranges and evict them
+
 	auto &cache_entry = it->second;
+	vector<idx_t> ranges_to_remove; // Collect range_start keys to remove
+
+	// Find all ranges that overlap with [from, to]
+	// A range [range_start, range_end) overlaps [from, to] if: range_start < to && range_end > from
 	for (auto &range_pair : cache_entry->ranges) {
-		EvictRange(range_pair.second.get()); // Evict the range (cancel write or delete file)
+		auto *range = range_pair.second.get();
+		if (range->range_start < to && range->range_end > from) {
+			// This range overlaps - evict it
+			LogDebug("EvictRegion: evicting overlapping range [" + to_string(range->range_start) + ", " +
+			         to_string(range->range_end) + ")");
+
+			// (i) & (ii) Evict the range (cancel pending write or delete cache file)
+			EvictRange(range);
+
+			// (iii) Remove from memcache if it exists
+			if (blobfile_memcache) {
+				auto &memcache_file = blobfile_memcache->GetOrCreateCachedFile(range->write_buf->file_path);
+				auto lock_guard = memcache_file.lock.GetExclusiveLock();
+				auto &memcache_ranges = memcache_file.Ranges(lock_guard);
+				auto mem_it = memcache_ranges.find(0); // Memcache uses offset 0 within the cache file
+				if (mem_it != memcache_ranges.end()) {
+					idx_t evicted_size = mem_it->second->nr_bytes;
+					memcache_ranges.erase(mem_it);
+					memcache_size -= std::min(memcache_size, evicted_size);
+					LogDebug("EvictRegion: removed memcache entry for range");
+				}
+			}
+
+			ranges_to_remove.push_back(range_pair.first);
+		}
 	}
-	key_cache->erase(it); // Remove the entire cache entry
+
+	// Remove the evicted ranges from the map
+	for (auto range_start : ranges_to_remove) {
+		cache_entry->ranges.erase(range_start);
+	}
+
+	// If no ranges left, remove the entire entry
+	if (cache_entry->ranges.empty()) {
+		key_cache->erase(it);
+	}
 }
 
 // Evict ranges (not entries) until the target is met
@@ -475,6 +514,7 @@ idx_t Diskcache::ReadFromCacheFile(const string &file, void *buffer, idx_t &leng
 }
 
 bool Diskcache::WriteToCacheFile(const string &file, const void *buffer, idx_t length) {
+	LogDebug("WriteToCacheFile: writing " + to_string(length) + " bytes to '" + file + "'");
 	try {
 		auto flags = // Open file for writing in append mode (create if not exists)
 		    FileOpenFlags::FILE_FLAGS_WRITE | FileOpenFlags::FILE_FLAGS_FILE_CREATE | FileOpenFlags::FILE_FLAGS_APPEND;
@@ -483,7 +523,6 @@ bool Diskcache::WriteToCacheFile(const string &file, const void *buffer, idx_t l
 			LogError("WriteToCacheFile: failed to open: '" + file + "'");
 			return false;
 		}
-		// Get current file size to know where we're appending
 		int64_t bytes_written = local_fs.Write(*handle, const_cast<void *>(buffer), length);
 		handle->Close(); // Close handle explicitly
 		if (bytes_written != static_cast<int64_t>(length)) {
@@ -491,6 +530,7 @@ bool Diskcache::WriteToCacheFile(const string &file, const void *buffer, idx_t l
 			         std::to_string(bytes_written) + " of " + std::to_string(length) + ")");
 			return false;
 		}
+		LogDebug("WriteToCacheFile: successfully wrote " + to_string(bytes_written) + " bytes to '" + file + "'");
 	} catch (const std::exception &e) {
 		LogError("WriteToCacheFile: failed to write to '" + file + "': " + string(e.what()));
 		return false;

@@ -83,6 +83,11 @@ private:
 			cache->EvictEntry(uri);
 		}
 	}
+	void EvictRegion(const string &uri, idx_t from, idx_t to) {
+		if (cache && !StringUtil::StartsWith(uri, cache->diskcache_dir)) {
+			cache->EvictRegion(uri, from, to);
+		}
+	}
 
 protected:
 	bool SupportsOpenFileExtended() const override {
@@ -121,12 +126,14 @@ public:
 	// these two are not expected to be implemented in blob filesystems, but for completeness/safety they evict as well
 	void Truncate(FileHandle &handle, int64_t new_size) override {
 		auto &cache_handle = handle.Cast<DiskcacheFileHandle>();
-		EvictFile(cache_handle.uri);
+		// Truncate invalidates everything from new_size onwards
+		EvictRegion(cache_handle.uri, static_cast<idx_t>(new_size), NumericLimits<idx_t>::Maximum());
 		cache_handle.wrapped_handle->Truncate(new_size);
 	}
 	bool Trim(FileHandle &handle, idx_t offset_bytes, idx_t length_bytes) override {
 		auto &cache_handle = handle.Cast<DiskcacheFileHandle>();
-		EvictFile(cache_handle.uri);
+		// Trim invalidates the region [offset_bytes, offset_bytes + length_bytes)
+		EvictRegion(cache_handle.uri, offset_bytes, offset_bytes + length_bytes);
 		return cache_handle.wrapped_handle->Trim(offset_bytes, length_bytes);
 	}
 

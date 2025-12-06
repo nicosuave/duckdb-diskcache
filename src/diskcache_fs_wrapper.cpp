@@ -101,7 +101,11 @@ int64_t DiskcacheFileSystemWrapper::Read(FileHandle &handle, void *buf, int64_t 
 
 void DiskcacheFileSystemWrapper::Write(FileHandle &handle, void *buf, int64_t nr_bytes, idx_t location) {
 	auto &cache_handle = handle.Cast<DiskcacheFileHandle>();
+	cache->LogDebug("Write(path=" + cache_handle.uri + ", location=" + to_string(location) +
+	                ", nr_bytes=" + to_string(nr_bytes) + ")");
 	cache_handle.file_position = location + nr_bytes;
+	// Evict any stale cached data for this region, then cache the new data
+	EvictRegion(cache_handle.uri, location, location + nr_bytes);
 	if (cache_handle.cache && cache->diskcache_initialized) {
 		cache_handle.cache->InsertCache(cache_handle.uri, location, nr_bytes, buf);
 	}
@@ -111,6 +115,10 @@ void DiskcacheFileSystemWrapper::Write(FileHandle &handle, void *buf, int64_t nr
 int64_t DiskcacheFileSystemWrapper::Write(FileHandle &handle, void *buf, int64_t nr_bytes) {
 	auto &cache_handle = handle.Cast<DiskcacheFileHandle>();
 	idx_t write_location = cache_handle.file_position;
+	cache->LogDebug("Write(path=" + cache_handle.uri + ", position=" + to_string(write_location) +
+	                ", nr_bytes=" + to_string(nr_bytes) + ")");
+	// Evict any stale cached data for this region before writing
+	EvictRegion(cache_handle.uri, write_location, write_location + nr_bytes);
 	nr_bytes = wrapped_fs->Write(*cache_handle.wrapped_handle, buf, nr_bytes);
 	if (nr_bytes > 0) {
 		cache_handle.file_position += nr_bytes;

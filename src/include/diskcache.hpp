@@ -231,7 +231,10 @@ struct Diskcache {
 		}
 		return it->second.get();
 	}
-	void EvictEntry(const string &uri);
+	void EvictRegion(const string &uri, idx_t from, idx_t to); // Evict all ranges overlapping [from, to]
+	void EvictEntry(const string &uri) {
+		EvictRegion(uri, 0, (idx_t)-1);
+	}
 	void EvictRange(DiskcacheFileRange *range) {
 		auto buf = range->write_buf->buf;
 		if (buf) {
