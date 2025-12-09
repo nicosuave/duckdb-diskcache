@@ -382,12 +382,16 @@ static void DiskcacheHydrateFunction(DataChunk &args, ExpressionState &state, Ve
 	auto start_ptr = UnifiedVectorFormat::GetData<int64_t>(start_data);
 	auto size_ptr = UnifiedVectorFormat::GetData<int64_t>(size_data);
 
+	// Get ClientContext for secret access in background threads
+	ClientContext *context = state.HasContext() ? &state.GetContext() : nullptr;
+
 	// Helper lambda to schedule a range
-	auto schedule_range = [&cache](const HydrateRange &range) {
+	auto schedule_range = [&cache, context](const HydrateRange &range) {
 		DiskcacheReadJob job;
 		job.uri = range.uri;
 		job.range_start = range.start;
 		job.range_size = range.end - range.start;
+		job.context = context;
 		cache->LogDebug("diskcache_hydrate: scheduling read uri=" + job.uri + " start=" + to_string(job.range_start) +
 		                " size=" + to_string(job.range_size));
 		cache->QueueIORead(job);

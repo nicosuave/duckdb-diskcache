@@ -2,6 +2,7 @@
 #include "duckdb/common/opener_file_system.hpp"
 #include "duckdb/main/config.hpp"
 #include "duckdb/main/database_file_opener.hpp"
+#include "duckdb/main/client_context_file_opener.hpp"
 
 namespace duckdb {
 
@@ -275,13 +276,19 @@ void Diskcache::ProcessReadJob(DiskcacheReadJob &job) {
 		if (!db) {
 			return; // Database is shutting down
 		}
-		// Use DatabaseFileSystem which provides a FileOpener with database-level settings/secrets
-		DatabaseFileSystem db_fs(*db);
-		auto handle = db_fs.OpenFile(job.uri, FileOpenFlags::FILE_FLAGS_READ);
 		auto buffer = unique_ptr<char[]>(new char[job.range_size]);
 
-		// Read data from file
-		db_fs.Read(*handle, buffer.get(), job.range_size, job.range_start);
+		// Use ClientContext if available (provides access to secrets), fall back to DatabaseFileSystem
+		if (job.context) {
+			ClientContextFileOpener opener(*job.context);
+			auto &fs = job.context->db->GetFileSystem();
+			auto handle = fs.OpenFile(job.uri, FileOpenFlags::FILE_FLAGS_READ, &opener);
+			fs.Read(*handle, buffer.get(), job.range_size, job.range_start);
+		} else {
+			DatabaseFileSystem db_fs(*db);
+			auto handle = db_fs.OpenFile(job.uri, FileOpenFlags::FILE_FLAGS_READ);
+			db_fs.Read(*handle, buffer.get(), job.range_size, job.range_start);
+		}
 
 		// Insert into cache (this will queue a write job)
 		InsertCache(job.uri, job.range_start, job.range_size, buffer.get());
@@ -294,24 +301,30 @@ void Diskcache::ProcessReadJob(DiskcacheReadJob &job) {
 void Diskcache::MainIOThreadLoop(idx_t thread_id) {
 	LogDebug("MainIOThreadLoop " + std::to_string(thread_id) + " started");
 	while (!shutdown_io_threads) {
-		std::unique_lock<std::mutex> lock(io_mutexes[thread_id]);
-		io_cvs[thread_id].wait(lock, [this, thread_id] {
-			return !write_queues[thread_id].empty() || !read_queues[thread_id].empty() || shutdown_io_threads;
-		});
-		if (shutdown_io_threads && write_queues[thread_id].empty() && read_queues[thread_id].empty()) {
-			break;
-		}
-		// Process writes with priority
-		if (!write_queues[thread_id].empty()) {
-			auto write_job = std::move(write_queues[thread_id].front());
-			write_queues[thread_id].pop();
-			lock.unlock();
-			ProcessWriteJob(write_job);
-		} else if (!read_queues[thread_id].empty()) {
-			auto read_job = std::move(read_queues[thread_id].front());
-			read_queues[thread_id].pop();
-			lock.unlock();
-			ProcessReadJob(read_job);
+		try {
+			std::unique_lock<std::mutex> lock(io_mutexes[thread_id]);
+			io_cvs[thread_id].wait(lock, [this, thread_id] {
+				return !write_queues[thread_id].empty() || !read_queues[thread_id].empty() || shutdown_io_threads;
+			});
+			if (shutdown_io_threads && write_queues[thread_id].empty() && read_queues[thread_id].empty()) {
+				break;
+			}
+			// Process writes with priority
+			if (!write_queues[thread_id].empty()) {
+				auto write_job = std::move(write_queues[thread_id].front());
+				write_queues[thread_id].pop();
+				lock.unlock();
+				ProcessWriteJob(write_job);
+			} else if (!read_queues[thread_id].empty()) {
+				auto read_job = std::move(read_queues[thread_id].front());
+				read_queues[thread_id].pop();
+				lock.unlock();
+				ProcessReadJob(read_job);
+			}
+		} catch (const std::exception &e) {
+			LogError("MainIOThreadLoop " + std::to_string(thread_id) + " caught exception: " + string(e.what()));
+		} catch (...) {
+			LogError("MainIOThreadLoop " + std::to_string(thread_id) + " caught unknown exception");
 		}
 	}
 	// Only log thread shutdown if not during database shutdown to avoid access to destroyed instance

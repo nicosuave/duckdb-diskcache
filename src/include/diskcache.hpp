@@ -24,6 +24,7 @@ namespace duckdb {
 
 // Forward declarations
 struct Diskcache;
+class ClientContext;
 
 // Canceled marker for nr_bytes field and error return values
 constexpr idx_t CANCELED = static_cast<idx_t>(-1);
@@ -77,9 +78,10 @@ struct DiskcacheWriteJob {
 
 // DiskcacheReadJob - async read job for prefetching (used during fast cache hydration)
 struct DiskcacheReadJob {
-	string uri;        // Cache uri of the blob that gets cached
-	idx_t range_start; // Start position in file
-	idx_t range_size;  // Bytes to read
+	string uri;             // Cache uri of the blob that gets cached
+	idx_t range_start;      // Start position in file
+	idx_t range_size;       // Bytes to read
+	ClientContext *context; // Client context for secret access (readonly)
 };
 
 //===----------------------------------------------------------------------===//
