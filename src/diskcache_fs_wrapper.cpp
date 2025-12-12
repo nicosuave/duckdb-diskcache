@@ -157,22 +157,27 @@ void WrapExistingFileSystem(DatabaseInstance &instance, bool unsafe_caching_enab
 		return;
 	}
 
-	// Check if the filesystem is a VirtualFileSystem
+	// Check if the filesystem is already wrapped
 	auto *wfs = dynamic_cast<DiskcacheFileSystemWrapper *>(config.file_system.get());
-	if (!wfs) {
-		auto *vfs = dynamic_cast<VirtualFileSystem *>(config.file_system.get());
-		if (vfs) {
-			DUCKDB_LOG_DEBUG(instance, "[Diskcache] Registering fake_s3:// filesystem for testing");
-			auto fake_s3_fs = make_uniq<FakeS3FileSystem>();
-			vfs->RegisterSubSystem(std::move(fake_s3_fs));
-		}
-		// Not a VirtualFileSystem - just wrap the entire filesystem without fake_s3
-		DUCKDB_LOG_DEBUG(instance, "[Diskcache] Filesystem is not a VirtualFileSystem, wrapping entire filesystem");
-		auto wrapped_fs = make_uniq<DiskcacheFileSystemWrapper>(std::move(config.file_system), shared_cache);
-		DUCKDB_LOG_DEBUG(instance, "[Diskcache] --%s", wrapped_fs->GetName().c_str());
-		config.file_system = std::move(wrapped_fs);
-		DUCKDB_LOG_DEBUG(instance, "[Diskcache] Successfully wrapped filesystem");
+	if (wfs) {
+		DUCKDB_LOG_DEBUG(instance, "[Diskcache] Filesystem already wrapped, skipping");
+		return;
 	}
+
+	// Register fake_s3:// filesystem for testing if we have a VirtualFileSystem
+	auto *vfs = dynamic_cast<VirtualFileSystem *>(config.file_system.get());
+	if (vfs) {
+		DUCKDB_LOG_DEBUG(instance, "[Diskcache] Registering fake_s3:// filesystem for testing");
+		auto fake_s3_fs = make_uniq<FakeS3FileSystem>();
+		vfs->RegisterSubSystem(std::move(fake_s3_fs));
+	}
+
+	// Wrap the entire filesystem with diskcache
+	DUCKDB_LOG_DEBUG(instance, "[Diskcache] Wrapping filesystem with diskcache");
+	auto wrapped_fs = make_uniq<DiskcacheFileSystemWrapper>(std::move(config.file_system), shared_cache);
+	DUCKDB_LOG_DEBUG(instance, "[Diskcache] --%s", wrapped_fs->GetName().c_str());
+	config.file_system = std::move(wrapped_fs);
+	DUCKDB_LOG_DEBUG(instance, "[Diskcache] Successfully wrapped filesystem");
 }
 
 } // namespace duckdb

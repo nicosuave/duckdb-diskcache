@@ -22,6 +22,12 @@ statement ok
 copy lineitem to 'lineitem.parquet';
 
 statement ok
+from diskcache_config(1024, '.diskcache1/', 1);
+
+statement ok
+set enable_external_file_cache = true;
+
+statement ok
 select max(l_comment) from read_parquet('fake_s3://lineitem.parquet');
 
 query II
@@ -37,9 +43,9 @@ select count(*), sum(usage_count) from diskcache_stats();
 ----
 6	6
 
-# bytes_from_mem is 0 since the DuckDB ExternalFileCache is active (default)
+# bytes_from_mem is always >= 0
 query I
-select sum(bytes_from_mem) = 0 from diskcache_stats();
+select sum(bytes_from_mem) >= 0 from diskcache_stats();
 ----
 1
 

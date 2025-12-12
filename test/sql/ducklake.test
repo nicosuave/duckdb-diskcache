@@ -1,10 +1,14 @@
 # name: test/sql/ducklake.test
-# description: test diskcache extension
+# description: test diskcache extension with ducklake
 # group: [sql]
+# FIXME: ducklake has an allocation leak in debug builds - this test passes in release
 
 require parquet
 
 require diskcache
+
+statement ok
+from diskcache_config(1024, '.diskcache/', 255);
 
 # take ducklake for a spin
 statement ok
@@ -58,3 +62,7 @@ query III
 select count(*), sum(usage_count), cast(sum(bytes_from_mem)/1000000 as int) from diskcache_stats() where uri like '%.parquet';
 ----
 19	57	8
+
+# Detach ducklake before test ends to ensure proper cleanup
+statement ok
+DETACH my_ducklake;
