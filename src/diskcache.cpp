@@ -279,7 +279,7 @@ void Diskcache::ProcessReadJob(DiskcacheReadJob &job, idx_t thread_id) {
 		if (!db || !job.coord || !job.coord->context) {
 			// Set error result if we have a result pointer (0ms since we didn't do anything)
 			if (job.result) {
-				*job.result = MakeHydrateResult(job.batch_id, static_cast<uint8_t>(thread_id), 0, true);
+				*job.result = MakeHydrateResult(static_cast<uint8_t>(thread_id), 0, true);
 			}
 			if (job.coord) {
 				job.coord->OnJobComplete();
@@ -289,8 +289,10 @@ void Diskcache::ProcessReadJob(DiskcacheReadJob &job, idx_t thread_id) {
 		auto buffer = unique_ptr<char[]>(new char[job.range_size]);
 
 		// Use the ClientContext from the coordination struct (has active transaction for secret access)
+		// Create a FileOpener to pass secrets to the filesystem
+		ClientContextFileOpener opener(*job.coord->context);
 		auto &fs = job.coord->context->db->GetFileSystem();
-		auto handle = fs.OpenFile(job.uri, FileOpenFlags::FILE_FLAGS_READ);
+		auto handle = fs.OpenFile(job.uri, FileOpenFlags::FILE_FLAGS_READ, &opener);
 		fs.Read(*handle, buffer.get(), job.range_size, job.range_start);
 
 		// Insert into cache (this will queue a write job)
@@ -305,8 +307,7 @@ void Diskcache::ProcessReadJob(DiskcacheReadJob &job, idx_t thread_id) {
 	auto end_time = std::chrono::steady_clock::now();
 	auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
 	if (job.result) {
-		*job.result =
-		    MakeHydrateResult(job.batch_id, static_cast<uint8_t>(thread_id), static_cast<uint64_t>(ms), !success);
+		*job.result = MakeHydrateResult(static_cast<uint8_t>(thread_id), static_cast<uint64_t>(ms), !success);
 	}
 
 	// Signal completion to the coordination struct

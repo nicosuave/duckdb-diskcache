@@ -328,10 +328,9 @@ static void DiskcacheStatsFunction(ClientContext &context, TableFunctionInput &d
 
 struct HydrateRange {
 	string uri;
-	idx_t start, end;    // range
-	idx_t original_size; // Sum of original range sizes
-	idx_t first_row;     // First row index in result vector for this range
-	uint16_t batch_id;   // Batch ID assigned to this range
+	idx_t start, end;      // range
+	idx_t original_size;   // Sum of original range sizes
+	vector<idx_t> row_ids; // Row indices that belong to this range (for result propagation)
 };
 
 struct DiskcacheHydrateBindData : public FunctionData {
@@ -369,7 +368,7 @@ static void DiskcacheHydrateFunction(DataChunk &args, ExpressionState &state, Ve
 	if (!cache || !cache->diskcache_initialized) {
 		// Cache not initialized - return error flag with 0ms for all rows
 		for (idx_t i = 0; i < count; i++) {
-			result_data[i] = MakeHydrateResult(0, 0, 0, true);
+			result_data[i] = MakeHydrateResult(0, 0, true);
 		}
 		return;
 	}
@@ -393,18 +392,15 @@ static void DiskcacheHydrateFunction(DataChunk &args, ExpressionState &state, Ve
 	if (!context) {
 		cache->LogError("diskcache_hydrate: no ClientContext available");
 		for (idx_t i = 0; i < count; i++) {
-			result_data[i] = MakeHydrateResult(0, 0, 0, true);
+			result_data[i] = MakeHydrateResult(0, 0, true);
 		}
 		return;
 	}
 
 	// First pass: collect all ranges to schedule (with merging)
-	// Track which rows belong to which batch (batch_id is assigned per range)
+	// Track which rows belong to each range for result propagation
 	vector<HydrateRange> ranges_to_schedule;
-	vector<uint16_t> row_to_batch(count, 0); // Maps each row index to its batch_id
 	HydrateRange *current_range = nullptr;
-	HydrateRange temp_range;
-	uint16_t next_batch_id = 1; // Start at 1 (0 reserved for invalid/null rows)
 
 	for (idx_t i = 0; i < count; i++) {
 		auto uri_idx = uri_data.sel->get_index(i);
@@ -413,7 +409,6 @@ static void DiskcacheHydrateFunction(DataChunk &args, ExpressionState &state, Ve
 
 		if (!uri_data.validity.RowIsValid(uri_idx) || !start_data.validity.RowIsValid(start_idx) ||
 		    !size_data.validity.RowIsValid(size_idx)) {
-			row_to_batch[i] = 0;           // Invalid row
 			result_validity.SetInvalid(i); // Set output as NULL for null inputs
 			continue;
 		}
@@ -426,8 +421,7 @@ static void DiskcacheHydrateFunction(DataChunk &args, ExpressionState &state, Ve
 		if (raw_start < 0 || raw_size <= 0) {
 			cache->LogDebug("diskcache_hydrate: skipping invalid input row " + to_string(i) +
 			                " start=" + to_string(raw_start) + " size=" + to_string(raw_size));
-			row_to_batch[i] = 0;
-			result_data[i] = MakeHydrateResult(0, 0, 0, true);
+			result_data[i] = MakeHydrateResult(0, 0, true);
 			continue;
 		}
 
@@ -444,37 +438,33 @@ static void DiskcacheHydrateFunction(DataChunk &args, ExpressionState &state, Ve
 				idx_t concatenated_size = (range_start + range_size) - current_range->start;
 				// Concatenate if cheaper to fetch combined than separate
 				if (EstimateS3(concatenated_size) < EstimateS3(current_range->original_size) + EstimateS3(range_size)) {
-					// Merge this range into current - use same batch_id
+					// Merge this range into current
 					cache->LogDebug("diskcache_hydrate: merging into current range, new end=" +
 					                to_string(range_start + range_size));
 					current_range->end = range_start + range_size;
 					current_range->original_size += range_size;
-					row_to_batch[i] = current_range->batch_id;
+					current_range->row_ids.push_back(i);
 					continue;
 				}
 				cache->LogDebug("diskcache_hydrate: NOT merging (cost), adding current to list");
 			} else {
 				cache->LogDebug("diskcache_hydrate: different URI, adding current to list");
 			}
-			ranges_to_schedule.push_back(*current_range);
+			ranges_to_schedule.push_back(std::move(*current_range));
+			current_range = nullptr;
 		}
 
-		// Start new range with new batch_id
-		temp_range.uri = uri;
-		temp_range.start = range_start;
-		temp_range.end = range_start + range_size;
-		temp_range.original_size = range_size;
-		temp_range.first_row = i;
-		temp_range.batch_id = next_batch_id++;
-		current_range = &temp_range;
-		row_to_batch[i] = temp_range.batch_id;
+		// Start new range
+		HydrateRange new_range;
+		new_range.uri = uri;
+		new_range.start = range_start;
+		new_range.end = range_start + range_size;
+		new_range.original_size = range_size;
+		new_range.row_ids.push_back(i);
+		ranges_to_schedule.push_back(std::move(new_range));
+		current_range = &ranges_to_schedule.back();
 		cache->LogDebug("diskcache_hydrate: started new range start=" + to_string(range_start) +
-		                " end=" + to_string(range_start + range_size) + " batch_id=" + to_string(temp_range.batch_id));
-	}
-
-	// Add final range if any
-	if (current_range != nullptr) {
-		ranges_to_schedule.push_back(*current_range);
+		                " end=" + to_string(range_start + range_size));
 	}
 
 	// If no ranges to schedule, we're done (results already set for invalid rows)
@@ -497,9 +487,8 @@ static void DiskcacheHydrateFunction(DataChunk &args, ExpressionState &state, Ve
 		job.range_size = range.end - range.start;
 		job.coord = &coord;
 		job.result = &range_results[i];
-		job.batch_id = range.batch_id;
 		cache->LogDebug("diskcache_hydrate: queuing read uri=" + job.uri + " start=" + to_string(job.range_start) +
-		                " size=" + to_string(job.range_size) + " batch_id=" + to_string(job.batch_id));
+		                " size=" + to_string(job.range_size));
 		cache->QueueIORead(job);
 	}
 
@@ -508,25 +497,11 @@ static void DiskcacheHydrateFunction(DataChunk &args, ExpressionState &state, Ve
 	coord.WaitForCompletion();
 	cache->LogDebug("diskcache_hydrate: all jobs completed");
 
-	// Build batch_id to result mapping
-	unordered_map<uint16_t, uint64_t> batch_to_result;
+	// Copy results to all rows that belong to each range
 	for (idx_t i = 0; i < ranges_to_schedule.size(); i++) {
-		batch_to_result[ranges_to_schedule[i].batch_id] = range_results[i];
-	}
-
-	// Copy results to all rows based on their batch_id
-	for (idx_t i = 0; i < count; i++) {
-		uint16_t batch_id = row_to_batch[i];
-		if (batch_id == 0) {
-			// Already set to error during first pass
-			continue;
-		}
-		auto it = batch_to_result.find(batch_id);
-		if (it != batch_to_result.end()) {
-			result_data[i] = it->second;
-		} else {
-			// Shouldn't happen, but handle it
-			result_data[i] = MakeHydrateResult(batch_id, 0, 0, true);
+		uint64_t range_result = range_results[i];
+		for (idx_t row_id : ranges_to_schedule[i].row_ids) {
+			result_data[row_id] = range_result;
 		}
 	}
 }
@@ -575,7 +550,7 @@ void DiskcacheExtension::Load(ExtensionLoader &loader) {
 	DUCKDB_LOG_DEBUG(instance, "[Diskcache] Registered diskcache_stats function");
 
 	// Register diskcache_hydrate scalar function
-	// Returns UBIGINT with format: [error:1bit][ms:39bits][thread_id:8bits][batch_id:16bits]
+	// Returns UBIGINT with format: [error:1bit][ms:55bits][thread_id:8bits]
 	ScalarFunction diskcache_hydrate_function("diskcache_hydrate",
 	                                          {LogicalType::VARCHAR, LogicalType::BIGINT, LogicalType::BIGINT},
 	                                          LogicalType::UBIGINT, DiskcacheHydrateFunction);

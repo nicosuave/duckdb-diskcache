@@ -79,16 +79,14 @@ struct DiskcacheWriteJob {
 // Forward declaration
 struct HydrateCoordination;
 
-// Hydrate result format: [error:1bit][ms:39bits][thread_id:8bits][batch_id:16bits]
-// - batch_id (bits 0-15): batch identifier for merged ranges
-// - thread_id (bits 16-23): IO thread that processed this job (0-255)
-// - ms (bits 24-62): milliseconds taken to read (39 bits, max ~17 years)
+// Hydrate result format: [error:1bit][ms:55bits][thread_id:8bits]
+// - thread_id (bits 0-7): IO thread that processed this job (0-255)
+// - ms (bits 8-62): milliseconds taken to read (55 bits, max ~1.1 billion years)
 // - error (bit 63): set if there was an error/exception during read
 constexpr uint64_t HYDRATE_ERROR_FLAG = 1ULL << 63; // Highest bit for error
 
-inline uint64_t MakeHydrateResult(uint16_t batch_id, uint8_t thread_id, uint64_t ms, bool error = false) {
-	uint64_t result = static_cast<uint64_t>(batch_id) | (static_cast<uint64_t>(thread_id) << 16) |
-	                  ((ms & 0x7FFFFFFFFFULL) << 24); // 39 bits for ms
+inline uint64_t MakeHydrateResult(uint8_t thread_id, uint64_t ms, bool error = false) {
+	uint64_t result = static_cast<uint64_t>(thread_id) | ((ms & 0x7FFFFFFFFFFFFFULL) << 8); // 55 bits for ms
 	if (error) {
 		result |= HYDRATE_ERROR_FLAG;
 	}
@@ -102,7 +100,6 @@ struct DiskcacheReadJob {
 	idx_t range_size;           // Bytes to read
 	HydrateCoordination *coord; // Coordination struct (contains context, counter, sync)
 	uint64_t *result;           // Pointer to result value (set by IO thread)
-	uint16_t batch_id;          // Batch ID for this job
 };
 
 // HydrateCoordination - coordination struct for synchronous hydrate batches
