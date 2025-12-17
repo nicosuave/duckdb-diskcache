@@ -400,7 +400,6 @@ static void DiskcacheHydrateFunction(DataChunk &args, ExpressionState &state, Ve
 	// First pass: collect all ranges to schedule (with merging)
 	// Track which rows belong to each range for result propagation
 	vector<HydrateRange> ranges_to_schedule;
-	HydrateRange *current_range = nullptr;
 
 	for (idx_t i = 0; i < count; i++) {
 		auto uri_idx = uri_data.sel->get_index(i);
@@ -431,27 +430,26 @@ static void DiskcacheHydrateFunction(DataChunk &args, ExpressionState &state, Ve
 		cache->LogDebug("diskcache_hydrate: input row " + to_string(i) + " uri=" + uri +
 		                " start=" + to_string(range_start) + " size=" + to_string(range_size));
 
-		// Try to merge with current range
-		if (current_range != nullptr) {
+		// Try to merge with last range in the vector
+		if (!ranges_to_schedule.empty()) {
+			auto &last_range = ranges_to_schedule.back();
 			// Check if we can merge: same URI and cost-effective
-			if (current_range->uri == uri) {
-				idx_t concatenated_size = (range_start + range_size) - current_range->start;
+			if (last_range.uri == uri) {
+				idx_t concatenated_size = (range_start + range_size) - last_range.start;
 				// Concatenate if cheaper to fetch combined than separate
-				if (EstimateS3(concatenated_size) < EstimateS3(current_range->original_size) + EstimateS3(range_size)) {
-					// Merge this range into current
+				if (EstimateS3(concatenated_size) < EstimateS3(last_range.original_size) + EstimateS3(range_size)) {
+					// Merge this range into last
 					cache->LogDebug("diskcache_hydrate: merging into current range, new end=" +
 					                to_string(range_start + range_size));
-					current_range->end = range_start + range_size;
-					current_range->original_size += range_size;
-					current_range->row_ids.push_back(i);
+					last_range.end = range_start + range_size;
+					last_range.original_size += range_size;
+					last_range.row_ids.push_back(i);
 					continue;
 				}
-				cache->LogDebug("diskcache_hydrate: NOT merging (cost), adding current to list");
+				cache->LogDebug("diskcache_hydrate: NOT merging (cost)");
 			} else {
-				cache->LogDebug("diskcache_hydrate: different URI, adding current to list");
+				cache->LogDebug("diskcache_hydrate: different URI");
 			}
-			ranges_to_schedule.push_back(std::move(*current_range));
-			current_range = nullptr;
 		}
 
 		// Start new range
@@ -462,7 +460,6 @@ static void DiskcacheHydrateFunction(DataChunk &args, ExpressionState &state, Ve
 		new_range.original_size = range_size;
 		new_range.row_ids.push_back(i);
 		ranges_to_schedule.push_back(std::move(new_range));
-		current_range = &ranges_to_schedule.back();
 		cache->LogDebug("diskcache_hydrate: started new range start=" + to_string(range_start) +
 		                " end=" + to_string(range_start + range_size));
 	}
